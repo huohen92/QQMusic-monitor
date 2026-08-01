@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    container_name: QQMusic-monitor
+    ports:
+      - "6696:6696"
+    network_mode: bridge
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+    restart: always

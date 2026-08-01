@@ -1,0 +1,289 @@
+/* 面板标题：统一的视觉层级 */
+.panel-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #343a40;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.panel-title i {
+    color: #6c757d;
+}
+
+/* 导航项保持同一水平线（任何屏幕宽度都不折叠换行） */
+.navbar .navbar-nav {
+    flex-direction: row;
+    gap: 0.5rem;
+}
+
+.navbar .nav-link {
+    padding: 0.5rem 1rem;
+    white-space: nowrap;
+}
+
+/* 统一的面板容器 */
+.content-box {
+    height: 30vh;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background-color: #f8f9fa;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* 三列等高布局：内容区域填充剩余空间 */
+.main-layout .col-md-3,
+.main-layout .col-md-5,
+.main-layout .col-md-4 {
+    display: flex;
+    flex-direction: column;
+}
+
+.main-layout .content-box {
+    flex-grow: 1;
+}
+
+/* 歌单列表去掉默认内边距，让条目顶格 */
+#playlists {
+    padding: 0;
+}
+
+#playlists .list-group-item {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+}
+
+#playlists .list-group-item:first-child {
+    border-top: none;
+}
+
+/* 歌单选中态：只高亮行背景和歌单名，不被 active 色覆盖监控按钮 */
+#playlists .list-group-item.active {
+    background-color: #e7f1ff;
+    border-color: #dee2e6;
+    color: #212529;
+}
+
+#playlists .list-group-item.active .playlist-item {
+    color: #0d6efd;
+    font-weight: 600;
+}
+
+#playlists .list-group-item.active .playlist-item .badge {
+    color: #fff;
+}
+
+#playlists .list-group-item.active .monitor-btn {
+    background-color: transparent !important;
+    border-color: #0d6efd;
+    color: #0d6efd;
+}
+
+#playlists .list-group-item.active .monitor-btn.active {
+    background-color: #0d6efd !important;
+    border-color: #0d6efd;
+    color: #fff !important;
+}
+
+/* 下载任务面板同样顶格 */
+#ongoing-downloads,
+#completed-downloads {
+    margin: 0;
+}
+
+/* 已下载/未下载按钮保持统一大小（btn-sm 一致） */
+.btn-info.download-btn,
+.btn-success.download-btn,
+.btn-primary.download-btn,
+.btn-secondary.download-btn,
+.btn-danger.download-btn,
+.btn-warning.download-btn {
+    font-size: 0.875rem;
+    padding: 0.25rem 0.75rem;
+    white-space: nowrap;
+    min-width: 90px;
+}
+
+/* 优化歌曲列表项布局 */
+.song-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.song-item .d-flex {
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.song-item .small {
+    width: 100%;
+    text-align: left;
+    margin-top: 0.25rem;
+}
+
+/* 优化配置页面布局 */
+.config-heading {
+    font-weight: 600;
+    color: #343a40;
+    margin-bottom: 1rem;
+}
+
+#config-content {
+    max-height: calc(100vh - 150px);
+    overflow-y: auto;
+    padding-bottom: 2rem;
+}
+
+/* 去掉配置页面中content-box的高度限制 */
+#config-content .content-box {
+    height: auto;
+    max-height: calc(100vh - 200px);
+}
+
+#config-form {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+#config-form .panel-title {
+    margin-top: 0.75rem;
+}
+
+/* 优化歌曲列表的高度（与其他面板等高） */
+#song-list {
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+}
+
+/* 底部播放条 */
+.player-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #212529;
+    color: #fff;
+    padding: 0.5rem 1rem;
+    z-index: 1050;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.player-bar .player-main {
+    max-width: 720px;
+    margin: 0 auto;
+}
+
+.player-bar .player-info {
+    min-width: 0;
+}
+
+.player-bar .player-info #player-song-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-bar .player-progress {
+    width: 100%;
+    padding: 0 0.25rem;
+}
+
+.player-bar .form-range {
+    height: 1rem;
+}
+
+.player-bar .form-range::-webkit-slider-thumb {
+    background: #fff;
+}
+
+.player-bar .form-range::-webkit-slider-runnable-track {
+    height: 0.3rem;
+}
+
+/* 让内容不被底部播放条遮挡 */
+body {
+    padding-bottom: 0;
+}
+
+body.has-player {
+    padding-bottom: 70px;
+}
+
+/* 手机端适配 */
+@media (max-width: 768px) {
+    .content-box {
+        height: auto;
+        max-height: 40vh;
+    }
+
+    .main-layout .col-md-3,
+    .main-layout .col-md-5,
+    .main-layout .col-md-4 {
+        margin-bottom: 1rem;
+    }
+
+    header h1 {
+        font-size: 1.2rem;
+        white-space: nowrap;
+    }
+
+    header .d-flex {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    #login-status {
+        font-size: 0.8rem;
+        max-width: 100px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    #user-nickname {
+        font-size: 0.8rem;
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    #user-avatar {
+        width: 24px !important;
+        height: 24px !important;
+    }
+
+    #song-list {
+        max-height: 45vh;
+    }
+
+    .song-item .btn-group .btn {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .player-bar {
+        padding: 0.4rem 0.6rem;
+    }
+
+    .player-bar .player-info {
+        min-width: 0;
+        max-width: none;
+    }
+
+    #config-content {
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    #config-content .content-box {
+        max-height: none;
+    }
+}
