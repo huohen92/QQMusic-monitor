@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
     "download": {
         "max_concurrent": 5,
         "retry_interval_seconds": 24 * 3600,
-        "default_dir": "/app/downloads",
+        "default_dir": "/app/downloads/save",
         "write_tags": True,
         "write_cover": True,
         "write_lyrics": True,

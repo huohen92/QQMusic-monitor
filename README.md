@@ -20,7 +20,7 @@
 - **歌单监控**
   - 监控指定歌单，有新歌加入时自动下载
   - 多任务并行下载，支持断点续传与自动重试
-  - **每歌单独立下载位置**：可为监控歌单指定专属下载目录，留空则用默认 `/app/downloads`
+  - **每歌单独立下载位置**：可为监控歌单指定专属下载目录，留空则用默认 `/app/downloads/save`
 
 - **下载管理**
   - 实时查看下载进度（进行中 / 已完成 / 失败）
@@ -53,7 +53,7 @@
 version: '3'
 services:
   app:
-    image: huohen92/qqmusic-monitor:v0.9
+    image: huohen92/qqmusic-monitor:v0.9.1
     container_name: QQMusic-monitor
     ports:
       - "6696:6696"
@@ -81,7 +81,7 @@ docker run -d \
   -e TZ=Asia/Shanghai \
   -v /vol1/1000/docker-test/qqmusic-data:/app/data \
   -v /vol1/1000/docker-test/qqmusic-downloads:/app/downloads \
-  huohen92/qqmusic-monitor:v0.9
+  huohen92/qqmusic-monitor:v0.9.1
 ```
 
 ### 目录说明
@@ -98,7 +98,7 @@ docker run -d \
 1. 启动后访问 `http://<服务器IP>:6696`
 2. 使用 QQ 扫码、微信扫码或手机号验证码登录
 3. 在「配置」页可设置下载音质、并发数、歌词写入、通知等
-4. 在「配置」页「歌单下载位置」区可为每个监控歌单指定独立下载目录（留空使用默认 `/app/downloads`）
+4. 在「配置」页「歌单下载位置」区可为每个监控歌单指定独立下载目录（留空使用默认 `/app/downloads/save`）
 5. 点开歌单即可查看歌曲并下载；点击「监控」按钮可自动跟踪歌单更新
 6. 本地已有文件的歌曲会显示「重新下载」按钮，点击后确认即可覆盖重下
 7. 进行中/排队中的任务可点「取消」，正在下载的任务会中断并清理半成品文件

@@ -85,8 +85,8 @@ async def _execute_download(song_mid: str, song_name: str, download_dir: str = "
     cooldown_until = qq_music.get_cooldown_until(cred)
 
     print(f"开始处理: {song_name}")
-    # 自定义下载目录（空则用默认 downloads/，容器内即 /app/downloads）
-    download_dir = download_dir or "downloads"
+    # 自定义下载目录（空则用默认 downloads/save，容器内即 /app/downloads/save）
+    download_dir = download_dir or "downloads/save"
     os.makedirs(download_dir, exist_ok=True)
 
     # 关键改动：总是先尝试获取下载链接

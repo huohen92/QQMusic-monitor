@@ -1,6 +1,7 @@
 services:
   app:
     build: .
+    image: huohen92/qqmusic-monitor:v0.9.1
     container_name: QQMusic-monitor
     ports:
       - "6696:6696"

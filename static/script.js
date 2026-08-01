@@ -1241,7 +1241,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 填充默认下载位置（从配置读取，仅展示）
             const defaultDirInput = document.getElementById('default-download-dir');
             if (defaultDirInput) {
-                defaultDirInput.value = config.download?.default_dir || '/app/downloads';
+                defaultDirInput.value = config.download?.default_dir || '/app/downloads/save';
             }
             // 填充监控歌单下载位置
             loadMonitoredDirs();
@@ -1268,7 +1268,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="mb-2 d-flex align-items-center">
                         <span class="text-truncate me-2" style="min-width: 120px; max-width: 200px;" title="${pl.title}">${pl.title}</span>
                         <input type="text" class="form-control" data-playlist-id="${id}"
-                               placeholder="留空使用 /app/downloads" value="${pl.download_dir || ''}">
+                               placeholder="留空使用 /app/downloads/save" value="${pl.download_dir || ''}">
                     </div>`;
             }).join('');
         } catch (error) {
