@@ -53,7 +53,7 @@
 version: '3'
 services:
   app:
-    image: huohen92/qqmusic-monitor:v0.80
+    image: huohen92/qqmusic-monitor:v0.9
     container_name: QQMusic-monitor
     ports:
       - "6696:6696"
