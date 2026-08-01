@@ -62,10 +62,16 @@ async def _save_download_tasks():
     except IOError as e:
         print(f"错误：无法保存下载任务文件: {e}")
 
-async def _execute_download(song_mid: str, song_name: str):
-    """实际执行下载的核心逻辑"""
+async def _execute_download(song_mid: str, song_name: str, download_dir: str = ""):
+    """实际执行下载的核心逻辑
+
+    Args:
+        song_mid: 歌曲 mid
+        song_name: 歌曲名称
+        download_dir: 自定义下载目录（空则使用默认 downloads/）
+    """
     import time
-    
+
     cred = qq_music.get_credential()
     if not cred:
         print("错误：无法执行下载，因为用户凭证未加载。")
@@ -79,7 +85,8 @@ async def _execute_download(song_mid: str, song_name: str):
     cooldown_until = qq_music.get_cooldown_until(cred)
 
     print(f"开始处理: {song_name}")
-    download_dir = "downloads"
+    # 自定义下载目录（空则用默认 downloads/，容器内即 /app/downloads）
+    download_dir = download_dir or "downloads"
     os.makedirs(download_dir, exist_ok=True)
 
     # 关键改动：总是先尝试获取下载链接
@@ -98,6 +105,30 @@ async def _execute_download(song_mid: str, song_name: str):
         safe_song_name = re.sub(r'[\\/*?:"<>|]', "", song_name).rstrip()
         file_path = os.path.join(download_dir, f"{safe_song_name}{file_extension}")
 
+        # 重新下载时覆盖已存在的本地文件，避免生成重复文件
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"已删除旧文件，准备覆盖: {file_path}")
+            else:
+                # 文件名清理规则差异（如逗号被去掉）导致的旧文件，用去特殊字符后的 basename 匹配
+                new_base = re.sub(r'[,，&\s]', "", safe_song_name).lower()
+                for old_name in os.listdir(download_dir):
+                    old_full = os.path.join(download_dir, old_name)
+                    if not os.path.isfile(old_full):
+                        continue
+                    old_base, old_ext = os.path.splitext(old_name)
+                    # 扩展名一致，且去除逗号/空格后 basename 相同 → 视为同一首歌，删除旧文件
+                    old_norm = re.sub(r'[,，&\s]', "", old_base).lower()
+                    if old_ext == file_extension and old_norm == new_base and old_full != file_path:
+                        try:
+                            os.remove(old_full)
+                            print(f"已删除旧文件（同一首歌）: {old_full}")
+                        except OSError as e:
+                            print(f"删除旧文件失败: {e}")
+        except Exception as e:
+            print(f"清理旧文件失败: {e}")
+
         download_tasks[song_mid].update({"status": "downloading", "quality": quality})
         await _save_download_tasks()
 
@@ -110,6 +141,10 @@ async def _execute_download(song_mid: str, song_name: str):
 
                     async with aiofiles.open(file_path, "wb") as f:
                         async for chunk in response.aiter_bytes():
+                            # 支持取消：下载过程中检测到取消则中断
+                            if download_tasks.get(song_mid, {}).get("status") == "cancelled":
+                                print(f"任务 {song_name} 已取消，中断下载。")
+                                raise asyncio.CancelledError("用户取消下载")
                             await f.write(chunk)
                             downloaded_size += len(chunk)
                             if total_size > 0:
@@ -163,21 +198,33 @@ async def _execute_download(song_mid: str, song_name: str):
                 except Exception as e:
                     print(f"写入歌曲标签/歌词失败: {e}")
 
-            # 发送下载完成通知（含文件大小）
+            # 发送下载完成通知（含文件大小和保存位置）
             file_size_str = ""
             try:
                 if os.path.exists(file_path):
                     file_size_str = f"{os.path.getsize(file_path) / 1024 / 1024:.1f} MB"
             except OSError:
                 pass
+            # 保存位置只显示目录（不含文件名），相对路径转为 /app/ 前缀
+            display_dir = os.path.dirname(file_path) if file_path else ""
+            if display_dir and not display_dir.startswith("/"):
+                display_dir = f"/app/{display_dir}"
             from notification import notification_manager
-            await notification_manager.send_download_complete_notification(song_name, quality, file_size_str)
+            await notification_manager.send_download_complete_notification(song_name, quality, file_size_str, display_dir)
         except httpx.HTTPStatusError as e:
             error_message = f"HTTP 错误: {e.response.status_code} {e.response.reason_phrase}"
             download_tasks[song_mid].update({"status": "failed", "error": error_message})
             print(f"下载失败: {song_name}, 原因: {error_message}")
             from notification import notification_manager
             await notification_manager.send_download_failed_notification(song_name, error_message)
+        except asyncio.CancelledError:
+            # 用户取消下载：清理半成品文件，状态已在 cancel 接口置为 cancelled
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"已删除取消下载的半成品文件: {file_path}")
+            except OSError as e:
+                print(f"删除半成品文件失败: {e}")
         except Exception as e:
             error_message = f"下载时发生未知错误: {e}"
             download_tasks[song_mid].update({"status": "failed", "error": error_message})
@@ -186,9 +233,17 @@ async def _execute_download(song_mid: str, song_name: str):
             await notification_manager.send_download_failed_notification(song_name, error_message)
 
     else:
-        # 如果获取链接失败，我们假设是API限制
+        # 如果获取链接失败，先检查是否是登录态失效
+        from utils import check_login_status
+        is_valid, login_msg = await check_login_status(cred)
+        if not is_valid:
+            print(f"登录状态已失效: {login_msg}")
+            from notification import notification_manager
+            await notification_manager.send_login_expired_notification(login_msg)
+
+        # 否则假设是API限制
         error_msg = "无法获取下载链接 (可能是API限制)"
-        
+
         current_time = int(time.time())
         if current_time >= cooldown_until:
             cooldown_duration = RETRY_INTERVAL_SECONDS
@@ -219,7 +274,9 @@ async def download_worker():
                 song_queue.task_done()
                 continue
 
-            await _execute_download(song_mid, song_name)
+            # 从任务状态读取该歌曲的下载目录（可能为空 = 默认）
+            task_dir = task_state.get("download_dir", "") if task_state else ""
+            await _execute_download(song_mid, song_name, task_dir)
             song_queue.task_done()
         except asyncio.CancelledError:
             break
@@ -266,14 +323,24 @@ def start_retry_task():
     print(f"启动后台定时重试任务，检查间隔为 {RETRY_INTERVAL_SECONDS / 3600:.1f} 小时。")
     asyncio.create_task(retry_failed_tasks_periodically())
 
-async def add_song_to_queue(song_mid: str, song_name: str):
-    """生产者接口：将歌曲加入下载队列"""
+async def add_song_to_queue(song_mid: str, song_name: str, download_dir: str = ""):
+    """生产者接口：将歌曲加入下载队列
+
+    若歌曲已在队列/下载中/已完成，则跳过，避免重复下载。
+    download_dir 为歌曲的自定义下载目录（空 = 使用默认 downloads/）。
+    """
+    existing = download_tasks.get(song_mid)
+    if existing and existing.get("status") in ("queued", "downloading", "completed"):
+        print(f"跳过加入队列: {song_name} 当前状态为 {existing.get('status')}")
+        return
+
     download_tasks[song_mid] = {
         "status": "queued",
         "song_name": song_name,
         "quality": "",
         "progress": 0,
         "error": None,
+        "download_dir": download_dir,
     }
     await _save_download_tasks()
     await song_queue.put((song_mid, song_name))

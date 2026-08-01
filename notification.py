@@ -140,19 +140,21 @@ class NotificationManager:
 
         return results
     
-    async def send_download_complete_notification(self, song_name: str, quality: str, file_size: str = "") -> Dict[str, bool]:
+    async def send_download_complete_notification(self, song_name: str, quality: str, file_size: str = "", file_path: str = "") -> Dict[str, bool]:
         """发送下载完成通知
 
         Args:
             song_name: 歌曲名称
             quality: 下载音质
             file_size: 文件大小（可选）
+            file_path: 歌曲保存目录（可选，不含文件名）
 
         Returns:
             Dict[str, bool]: 各渠道发送结果
         """
         size_line = f"\n文件大小: {file_size}" if file_size else ""
-        message = f"歌曲名称: {song_name}\n下载音质: {quality}{size_line}\n下载时间: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        path_line = f"\n下载位置: {file_path}" if file_path else ""
+        message = f"歌曲名称: {song_name}\n下载音质: {quality}{size_line}{path_line}\n下载时间: {time.strftime('%Y-%m-%d %H:%M:%S')}"
         return await self.send_notification(message, "歌曲下载完成")
 
     async def send_download_failed_notification(self, song_name: str, error: str) -> Dict[str, bool]:
@@ -201,7 +203,19 @@ class NotificationManager:
 
         message = f"歌单名称: {playlist_name}\n本次更新已下载完成: {len(completed_songs)}首\n\n{song_list}\n\n完成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}"
         return await self.send_notification(message, "歌单更新下载完成")
-    
+
+    async def send_login_expired_notification(self, message: str) -> Dict[str, bool]:
+        """发送登录状态失效通知
+
+        Args:
+            message: 失效原因
+
+        Returns:
+            Dict[str, bool]: 各渠道发送结果
+        """
+        content = f"QQ 音乐登录状态已失效，无法继续下载。\n\n原因: {message}\n\n时间: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        return await self.send_notification(content, "登录状态已失效")
+
     async def close(self):
         """关闭所有HTTP客户端"""
         for client in self._clients.values():

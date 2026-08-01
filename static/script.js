@@ -441,6 +441,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!item) return;
                 const mid = item.dataset.songMid;
                 const name = item.querySelector('span').textContent || '';
+                // 已有本地文件：弹窗确认是否重新下载
+                if (dlBtn.dataset.hasLocalFile) {
+                    if (!confirm(`本地已有该歌曲文件，确定要重新下载吗？\n\n${name}`)) {
+                        return;
+                    }
+                    delete dlBtn.dataset.hasLocalFile;
+                }
                 dlBtn.textContent = '队列中';
                 dlBtn.disabled = true;
                 startDownload(mid, name);
@@ -882,14 +889,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     button.className = 'btn btn-primary btn-sm download-btn';
             }
         } else if (localInfo) {
-            // 有本地歌曲文件，但没有任务记录
-            button.textContent = '已有本地歌曲文件';
-            button.disabled = true;
+            // 有本地歌曲文件，但没有任务记录：可点击重新下载
+            button.textContent = '重新下载';
+            button.disabled = false;
+            button.dataset.hasLocalFile = '1';
             button.className = 'btn btn-info btn-sm download-btn btn-local-file';
         } else {
             // If no task exists for this song, ensure button is in default state
             button.textContent = '下载';
             button.disabled = false;
+            delete button.dataset.hasLocalFile;
             button.className = 'btn btn-primary btn-sm download-btn';
         }
     }
@@ -1226,14 +1235,70 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/config');
             const data = await response.json();
             const config = data.config;
-            
+
             // 填充表单字段
             fillFormWithConfig(config);
+            // 填充默认下载位置（从配置读取，仅展示）
+            const defaultDirInput = document.getElementById('default-download-dir');
+            if (defaultDirInput) {
+                defaultDirInput.value = config.download?.default_dir || '/app/downloads';
+            }
+            // 填充监控歌单下载位置
+            loadMonitoredDirs();
         } catch (error) {
             console.error('加载配置失败:', error);
         }
     }
-    
+
+    async function loadMonitoredDirs() {
+        const container = document.getElementById('monitored-dir-list');
+        if (!container) return;
+        try {
+            const response = await fetch('/api/monitored-playlists-config');
+            const data = await response.json();
+            const playlists = data || {};
+            const ids = Object.keys(playlists);
+            if (ids.length === 0) {
+                container.innerHTML = '<div class="text-muted small">暂无监控歌单。先到「音乐」页开启歌单监控，再回来配置。</div>';
+                return;
+            }
+            container.innerHTML = ids.map(id => {
+                const pl = playlists[id];
+                return `
+                    <div class="mb-2 d-flex align-items-center">
+                        <span class="text-truncate me-2" style="min-width: 120px; max-width: 200px;" title="${pl.title}">${pl.title}</span>
+                        <input type="text" class="form-control" data-playlist-id="${id}"
+                               placeholder="留空使用 /app/downloads" value="${pl.download_dir || ''}">
+                    </div>`;
+            }).join('');
+        } catch (error) {
+            console.error('加载监控歌单目录失败:', error);
+        }
+    }
+
+    async function saveMonitoredDirs() {
+        const container = document.getElementById('monitored-dir-list');
+        if (!container) return true;
+        const inputs = container.querySelectorAll('input[data-playlist-id]');
+        if (inputs.length === 0) return true;
+        const payload = {};
+        inputs.forEach(inp => {
+            payload[inp.dataset.playlistId] = { download_dir: inp.value.trim() };
+        });
+        try {
+            const response = await fetch('/api/monitored-playlists-config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('保存失败');
+            return true;
+        } catch (error) {
+            console.error('保存监控歌单目录失败:', error);
+            return false;
+        }
+    }
+
     function fillFormWithConfig(config) {
         // 获取所有表单字段
         const formFields = document.querySelectorAll('#config-form [name]');
@@ -1290,7 +1355,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (response.ok) {
-                alert('配置保存成功！');
+                // 一并保存监控歌单下载目录
+                const dirsOk = await saveMonitoredDirs();
+                alert(dirsOk ? '配置保存成功！' : '配置已保存，但歌单下载目录保存失败。');
             } else {
                 throw new Error('配置保存失败');
             }

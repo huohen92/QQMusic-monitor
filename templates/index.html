@@ -240,6 +240,19 @@
 
                         <hr>
 
+                        <!-- 歌单下载位置 -->
+                        <div class="panel-title"><i class="bi bi-folder2-open"></i> 歌单下载位置</div>
+                        <div class="mb-3">
+                            <label class="form-label">默认下载位置（固定）</label>
+                            <input type="text" class="form-control" id="default-download-dir" value="" disabled>
+                            <div class="form-text">所有歌曲默认下载到此目录。可为每个监控歌单指定独立目录，留空则使用默认。</div>
+                        </div>
+                        <div class="mb-3" id="monitored-dir-list">
+                            <div class="text-muted small">暂无监控歌单。先到「音乐」页开启歌单监控，再回来配置。</div>
+                        </div>
+
+                        <hr>
+
                         <!-- Webhook 配置 -->
                         <div class="panel-title"><i class="bi bi-link-45deg"></i> Webhook 通知</div>
                         <div class="mb-3">
@@ -332,6 +345,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/script.js?v=2.4"></script>
+    <script src="/static/script.js?v=2.7"></script>
 </body>
 </html>

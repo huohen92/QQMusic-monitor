@@ -12,10 +12,13 @@ from shared_state import download_tasks, pending_completion
 DATA_DIR = "data"
 MONITOR_FILE = os.path.join(DATA_DIR, "monitored_playlists.json")
 file_lock = asyncio.Lock()
+# 防止监控检查重叠执行（歌单大/网络慢时避免并发重复加队列）
+_check_lock = asyncio.Lock()
 
 # 从配置管理模块获取配置
 from config import config
-CHECK_INTERVAL_SECONDS = config.get("monitor.check_interval_seconds", 1800)  # 检查间隔（秒），默认为 30 分钟
+# 检查间隔（秒），默认为 30 分钟。配置文件里可能是字符串，需转 int
+CHECK_INTERVAL_SECONDS = int(config.get("monitor.check_interval_seconds", 1800))
 
 # 确保数据目录在启动时存在
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -83,12 +86,23 @@ async def toggle_monitoring(playlist_id: str) -> bool:
             playlist_details = await qq_music.get_playlist_songs(int(playlist_id))
             if isinstance(playlist_details, list): # 假设返回的是歌曲列表
                 current_mids = {song['mid'] for song in playlist_details}
-                # 尝试从API获取歌单名，这里需要一个能获取歌单信息的函数
-                # 暂时使用 playlist_id 作为 title
-                title = f"歌单 {playlist_id}" 
+                # 从用户歌单列表匹配真实歌单名
+                title = f"歌单 {playlist_id}"
+                try:
+                    from qq_music import get_user_playlists, get_credential
+                    cred = get_credential()
+                    if cred:
+                        user_playlists = await get_user_playlists(cred.musicid)
+                        for pl in user_playlists:
+                            if str(pl.get("dissid")) == str(playlist_id):
+                                title = pl.get("title", title)
+                                break
+                except Exception as e:
+                    print(f"获取歌单真实名称失败: {e}，使用 ID 作为标题")
                 playlists[playlist_id] = {
                     "title": title,
-                    "known_song_mids": current_mids
+                    "known_song_mids": current_mids,
+                    "download_dir": "",  # 空 = 使用默认下载目录
                 }
                 is_monitoring = True
                 print(f"已开始监控歌单 {playlist_id}。当前有 {len(current_mids)} 首歌曲。")
@@ -107,8 +121,98 @@ async def get_monitored_playlist_ids() -> List[str]:
     playlists = await _load_monitored_playlists()
     return list(playlists.keys())
 
+
+async def _resolve_real_titles(playlist_ids: List[str]) -> dict:
+    """从用户歌单列表解析指定歌单的真实名称
+
+    Args:
+        playlist_ids: 需要解析真实名称的歌单ID列表（字符串）
+
+    Returns:
+        dict: {playlist_id(str): 真实歌单名}
+    """
+    real_titles = {}
+    if not playlist_ids:
+        return real_titles
+    try:
+        from qq_music import get_user_playlists, get_credential
+        cred = get_credential()
+        if cred:
+            user_playlists = await get_user_playlists(cred.musicid)
+            for pl in user_playlists:
+                pid = str(pl.get("dissid"))
+                if pid in playlist_ids:
+                    real_titles[pid] = pl.get("title", "")
+    except Exception as e:
+        print(f"解析歌单真实名称失败: {e}")
+    return real_titles
+
+
+async def get_monitored_playlists_config():
+    """获取所有已监控歌单的下载目录配置
+
+    若歌单标题是占位格式"歌单 {ID}"，则尝试解析真实名称。
+
+    Returns:
+        dict: {"<playlist_id>": {"title": str, "download_dir": str}, ...}
+    """
+    playlists = await _load_monitored_playlists()
+
+    # 收集需要解析真实名称的歌单
+    placeholder_ids = []
+    for playlist_id, details in playlists.items():
+        title = details.get("title", "")
+        if not title or title == f"歌单 {playlist_id}":
+            placeholder_ids.append(str(playlist_id))
+
+    # 通过用户歌单列表解析真实名称
+    real_titles = await _resolve_real_titles(placeholder_ids)
+
+    result = {}
+    for playlist_id, details in playlists.items():
+        pid = str(playlist_id)
+        title = details.get("title", "")
+        if not title or title == f"歌单 {playlist_id}":
+            title = real_titles.get(pid) or title or f"歌单 {playlist_id}"
+        result[pid] = {
+            "title": title,
+            "download_dir": details.get("download_dir", ""),
+        }
+    return result
+
+
+async def update_monitored_playlists_config(config_data: dict):
+    """批量更新已监控歌单的下载目录配置
+
+    Args:
+        config_data: {"<playlist_id>": {"download_dir": str}, ...}
+
+    Returns:
+        dict: 更新后的完整配置
+    """
+    playlists = await _load_monitored_playlists()
+    for playlist_id, settings in config_data.items():
+        if playlist_id not in playlists:
+            continue
+        download_dir = settings.get("download_dir", "")
+        if isinstance(download_dir, str):
+            playlists[playlist_id]["download_dir"] = download_dir.strip()
+
+    await _save_monitored_playlists(playlists)
+    return await get_monitored_playlists_config()
+
 async def check_playlists_for_updates():
     """检查所有被监控的歌单是否有更新，并自动下载新歌曲"""
+    # 防重叠执行：上一次检查未完成时跳过本次
+    if _check_lock.locked():
+        print("上一次歌单检查尚未完成，跳过本次检查。")
+        return
+
+    async with _check_lock:
+        await _do_check_playlists()
+
+async def _do_check_playlists():
+    """实际执行歌单检查（在防重入锁内运行）"""
     print("开始检查监控的歌单是否有更新...")
     await qq_music.auth_completed.wait()
     if not qq_music.is_login_valid():
@@ -121,10 +225,23 @@ async def check_playlists_for_updates():
         return
 
     updated_playlists = playlists.copy()
-    
+
+    # 预先解析所有需要真实名称的歌单（占位标题的）
+    placeholder_ids = [
+        str(pid)
+        for pid, d in playlists.items()
+        if not d.get("title") or d.get("title") == f"歌单 {pid}"
+    ]
+    real_titles = await _resolve_real_titles(placeholder_ids)
+
     for playlist_id, details in playlists.items():
+        # 解析真实歌单名（占位则用解析结果）
+        title = details.get("title", f"歌单 {playlist_id}")
+        if not title or title == f"歌单 {playlist_id}":
+            title = real_titles.get(str(playlist_id)) or title
+
         try:
-            print(f"正在检查歌单: {details.get('title', playlist_id)}...")
+            print(f"正在检查歌单: {title}...")
             # 传入 no_cache=True 来绕过 API 缓存
             current_songs = await qq_music.get_playlist_songs(int(playlist_id), no_cache=True)
             if not isinstance(current_songs, list):
@@ -133,32 +250,33 @@ async def check_playlists_for_updates():
 
             current_mids = {song['mid'] for song in current_songs}
             known_mids = details.get("known_song_mids", set())
-            
+
             new_mids = current_mids - known_mids
-            
+
             if new_mids:
-                print(f"歌单 '{details.get('title', playlist_id)}' 发现 {len(new_mids)} 首新歌曲！")
+                print(f"歌单 '{title}' 发现 {len(new_mids)} 首新歌曲！")
                 new_song_dicts = []
+                playlist_dir = details.get("download_dir", "")
                 for song in current_songs:
                     if song['mid'] in new_mids:
                         song_name = f"{song['name']} - {', '.join(s['name'] for s in song['singer'])}"
                         print(f"  -> 正在将新歌曲 '{song_name}' 加入下载队列...")
                         # 将新歌放入任务队列，而不是直接下载
-                        await add_song_to_queue(song['mid'], song_name)
+                        await add_song_to_queue(song['mid'], song_name, download_dir=playlist_dir)
                         new_song_dicts.append(song)
 
                 # 更新该歌单的已知歌曲列表
                 updated_playlists[playlist_id]["known_song_mids"].update(new_mids)
 
-                # 发送歌单更新通知（含新增歌曲列表）
+                # 发送歌单更新通知（含新增歌曲列表，使用真实歌单名）
                 if new_song_dicts:
                     from notification import notification_manager
                     await notification_manager.send_playlist_update_notification(
-                        details.get('title', playlist_id), new_song_dicts
+                        title, new_song_dicts
                     )
                     # 记录待通知的下载完成状态
                     pending_completion[playlist_id] = {
-                        "title": details.get('title', playlist_id),
+                        "title": title,
                         "songs": {
                             song['mid']: {
                                 "name": song.get('name', '未知歌曲'),
@@ -167,13 +285,20 @@ async def check_playlists_for_updates():
                             for song in new_song_dicts
                         },
                     }
+
+            # 同步 known_song_mids：移除歌单中已不存在的歌曲，
+            # 避免"删除又加回"的歌曲被当成新歌重复下载
+            removed_mids = known_mids - current_mids
+            if removed_mids:
+                updated_playlists[playlist_id]["known_song_mids"] = known_mids - removed_mids
+                print(f"歌单 '{title}' 有 {len(removed_mids)} 首歌曲已移除，同步已知列表。")
             else:
-                print(f"歌单 '{details.get('title', playlist_id)}' 没有发现新歌曲。")
+                print(f"歌单 '{title}' 没有发现新歌曲。")
 
         except Exception as e:
             print(f"错误：检查歌单 {playlist_id} 更新时出错: {e}")
             continue
-    
+
     await _save_monitored_playlists(updated_playlists)
 
     # 检查"歌单更新新增歌曲"是否有已下载完成的，发送汇总通知

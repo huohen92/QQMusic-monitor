@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "download": {
         "max_concurrent": 5,
         "retry_interval_seconds": 24 * 3600,
+        "default_dir": "/app/downloads",
         "write_tags": True,
         "write_cover": True,
         "write_lyrics": True,
@@ -103,12 +104,38 @@ class ConfigManager:
         """保存配置到文件"""
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         try:
+            # 根据 DEFAULT_CONFIG 的类型规范化值，避免数字存成字符串导致运行时崩溃
+            normalized = self._normalize_types(self._config, DEFAULT_CONFIG)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
+                json.dump(normalized, f, indent=2, ensure_ascii=False)
             return True
         except IOError as e:
             print(f"保存配置文件失败: {e}")
             return False
+
+    @staticmethod
+    def _normalize_types(value, default):
+        """递归把 value 中的值转换为 default 对应的类型（数字/布尔）"""
+        if isinstance(default, dict) and isinstance(value, dict):
+            return {
+                k: ConfigManager._normalize_types(value.get(k, dv), dv)
+                for k, dv in default.items()
+            }
+        if isinstance(default, bool):
+            if isinstance(value, str):
+                return value.lower() in ("true", "1", "yes")
+            return bool(value)
+        if isinstance(default, int):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+        if isinstance(default, float):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+        return value
     
     def get(self, key_path: str, default: Any = None) -> Any:
         """通过点路径获取配置值，例如：'download.max_concurrent'"""

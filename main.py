@@ -360,19 +360,19 @@ async def retry_download(song_mid: str):
 @app.post("/api/download/cancel/{song_mid}")
 async def cancel_download(song_mid: str):
     """取消一个正在进行或排队中的任务"""
-    # 注意：这个功能在队列模式下难以精确实现，暂时只做状态更新
     task = download_tasks.get(song_mid)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    
-    if task.get("status") == "queued":
+
+    if task.get("status") in ("queued", "downloading"):
+        # 下载中/排队中：标记为取消，下载循环会在下一个 chunk 检测到并中断
         download_tasks[song_mid].update(
             {"status": "cancelled", "error": "用户手动取消"}
         )
         await tasks._save_download_tasks()
         return {"status": "success", "message": "任务已取消"}
     else:
-        return {"status": "failed", "message": "无法取消已开始下载的任务"}
+        return {"status": "failed", "message": "当前状态无法取消"}
 
 
 @app.post("/api/download/remove/{song_mid}")
@@ -475,6 +475,26 @@ async def get_monitoring_status():
     try:
         ids = await monitor.get_monitored_playlist_ids()
         return ids
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/monitored-playlists-config", dependencies=[Depends(check_auth_status)])
+async def get_monitored_playlists_config():
+    """获取所有已监控歌单的下载目录配置"""
+    try:
+        return await monitor.get_monitored_playlists_config()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/monitored-playlists-config", dependencies=[Depends(check_auth_status)])
+async def update_monitored_playlists_config(config_data: dict):
+    """批量更新已监控歌单的下载目录配置
+
+    Body 格式: {"<playlist_id>": {"download_dir": "downloads/新歌"}, ...}
+    """
+    try:
+        updated = await monitor.update_monitored_playlists_config(config_data)
+        return {"status": "success", "config": updated}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

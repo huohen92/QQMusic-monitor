@@ -315,17 +315,27 @@ async def search_song(keyword: str, page: int = 1, num: int = 10):
 
 
 async def get_playlist_songs(playlist_id: int, no_cache: bool = False):
-    """获取歌单中的歌曲，特殊处理'我喜欢'歌单"""
+    """获取歌单中的歌曲，特殊处理'我喜欢'歌单
+
+    使用分页迭代拉取全部歌曲，避免单页上限（5000）导致漏歌。
+    """
     cred = get_credential()
     if not cred:
         raise ValueError("用户未登录")
 
+    songs = []
     if str(playlist_id) == "201":
-        fav_song_data = await global_client.user.get_fav_song(cred.encrypt_uin, num=5000)
-        return [_song_to_dict(song) for song in fav_song_data.songs]
+        fav_req = global_client.user.get_fav_song(cred.encrypt_uin, num=100, page=1)
+        pager = fav_req.paginate()
+        async for page in pager:
+            songs.extend(page.songs)
     else:
-        songlist_detail = await global_client.songlist.get_detail(songlist_id=playlist_id, num=5000)
-        return [_song_to_dict(song) for song in songlist_detail.songs]
+        detail_req = global_client.songlist.get_detail(songlist_id=playlist_id, num=100, page=1)
+        pager = detail_req.paginate()
+        async for page in pager:
+            songs.extend(page.songs)
+
+    return [_song_to_dict(song) for song in songs]
 
 
 async def get_song_by_mid(song_mid: str):
