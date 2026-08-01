@@ -81,7 +81,7 @@ docker run -d \
   -e TZ=Asia/Shanghai \
   -v /vol1/1000/docker-test/qqmusic-data:/app/data \
   -v /vol1/1000/docker-test/qqmusic-downloads:/app/downloads \
-  huohen92/qqmusic-monitor:v0.80
+  huohen92/qqmusic-monitor:v0.9
 ```
 
 ### 目录说明
