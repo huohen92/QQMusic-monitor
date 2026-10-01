@@ -6,6 +6,8 @@ import asyncio
 from qqmusic_api.models.request import Credential
 from typing import Dict, Set, List, Optional, Any
 
+from local_files import human_size, quality_for_file
+
 # --- Define the data directory and the path for the credentials file ---
 DATA_DIR = "data"
 DOWNLOADS_DIR = "downloads"
@@ -20,6 +22,12 @@ COOLDOWN_FILE_PATH = os.path.join(DATA_DIR, "cooldown.json")
 # 确保数据目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# 索引时跳过的非音频文件扩展名（歌词/封面/说明等）
+NON_AUDIO_EXTENSIONS = {
+    ".lrc", ".txt", ".json", ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    ".bmp", ".cue", ".log", ".nfo", ".db", ".ini", ".md", ".pdf", ".zip",
+}
 
 
 class SongIndexManager:
@@ -86,12 +94,21 @@ class SongIndexManager:
 
         print(f"开始扫描下载目录: {DOWNLOADS_DIR}")
         if os.path.exists(DOWNLOADS_DIR):
-            files = os.listdir(DOWNLOADS_DIR)
-            print(f"下载目录包含 {len(files)} 个文件")
+            # 递归扫描：歌单子目录、日期子目录里的文件也要索引到
+            files = []
+            for root, dirs, filenames in os.walk(DOWNLOADS_DIR):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for filename in filenames:
+                    if filename.startswith("."):
+                        continue
+                    if os.path.splitext(filename)[1].lower() in NON_AUDIO_EXTENSIONS:
+                        continue
+                    files.append(os.path.join(root, filename))
+            print(f"下载目录包含 {len(files)} 个文件（含子目录）")
 
-            for filename in files:
-                print(f"处理文件: {filename}")
-                full_path = os.path.join(DOWNLOADS_DIR, filename)
+            for full_path in files:
+                filename = os.path.basename(full_path)
+                print(f"处理文件: {full_path}")
                 if os.path.isfile(full_path):
                     basename, ext = os.path.splitext(filename)
                     file_size = os.path.getsize(full_path)
@@ -131,8 +148,8 @@ class SongIndexManager:
                         quality = matched_task["quality"]
                         print(f"匹配到下载历史，获取音质: {quality}")
                     else:
-                        quality = self._extract_quality_from_filename(basename)
-                        print(f"未匹配到下载历史，使用提取的音质: {quality}")
+                        quality = quality_for_file(full_path)
+                        print(f"未匹配到下载历史，按文件名/扩展名推断音质: {quality}")
 
                     song_info = {
                         "filename": filename,
@@ -146,7 +163,7 @@ class SongIndexManager:
 
                     by_basename[basename] = song_info
                     by_fullname[filename] = song_info
-                    print(f"已索引文件: {filename}, 大小: {file_size}, 音质: {quality}, 本程序下载: {matched_task is not None}")
+                    print(f"已索引文件: {filename}, 大小: {human_size(file_size)}, 音质: {quality}, 本程序下载: {matched_task is not None}")
         else:
             print(f"下载目录不存在: {DOWNLOADS_DIR}")
 
@@ -155,27 +172,9 @@ class SongIndexManager:
         self._index["last_updated"] = int(asyncio.get_event_loop().time())
 
     def _extract_quality_from_filename(self, basename: str) -> str:
-        """从文件名中提取音质信息"""
-        quality_keywords = {
-            "MASTER": "臻品母带",
-            "ATMOS": "臻品全景声",
-            "FLAC": "无损音质",
-            "OGG_640": "极高音质",
-            "OGG_320": "高品音质",
-            "MP3_320": "较高音质",
-            "ACC_192": "较高音质",
-            "OGG_192": "标准音质",
-            "MP3_128": "标准音质",
-            "ACC_96": "流畅音质",
-            "OGG_96": "流畅音质",
-            "ACC_48": "超低音质"
-        }
-
-        for keyword, quality_name in quality_keywords.items():
-            if keyword in basename.upper():
-                return quality_name
-
-        return "未知音质"
+        """从文件名中提取音质信息（关键字表统一维护在 local_files 里）"""
+        from local_files import quality_from_filename
+        return quality_from_filename(basename)
 
     def get_existing_song_basenames(self) -> Set[str]:
         """获取所有已存在歌曲的基础文件名"""

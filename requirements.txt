@@ -1,6 +1,7 @@
 # QQ音乐下载器依赖 (2026-07 更新)
 # qqmusic-api-python 已升级到 0.7.0 (全新 Client/modules 架构, 见 https://github.com/L-1124/QQMusicApi)
-qqmusic-api-python>=0.7.0
+# 歌词功能使用公开接口 lyric.get_lyric()（0.7.3 提供），故下限提到 0.7.3
+qqmusic-api-python>=0.7.3
 fastapi>=0.141.1
 uvicorn[standard]>=0.52.0
 jinja2>=3.1.6

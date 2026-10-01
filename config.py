@@ -4,6 +4,10 @@ from typing import Dict, Any
 
 CONFIG_FILE = os.path.join("data", "config.json")
 
+# 应用版本与项目主页（配置页展示用；升级版本只改这里）
+APP_VERSION = "0.9.3"
+GITHUB_URL = "https://github.com/huohen92/QQMusic-monitor"
+
 # 默认配置
 DEFAULT_CONFIG = {
     "app": {
@@ -14,6 +18,7 @@ DEFAULT_CONFIG = {
         "max_concurrent": 5,
         "retry_interval_seconds": 24 * 3600,
         "default_dir": "/app/downloads/save",
+        "downloads_root": "/app/downloads",
         "write_tags": True,
         "write_cover": True,
         "write_lyrics": True,
@@ -22,6 +27,8 @@ DEFAULT_CONFIG = {
         "lyric_include_trans": True,
         "lyric_write_tag": True,
         "lyric_write_lrc": True,
+        # OGG 转 MP3：优先下载 QQ 原生 MP3（无损及以上仍优先），避免产出 .ogg
+        "prefer_mp3": False,
         "quality_order": ["MASTER", "ATMOS_51", "ATMOS_2", "FLAC", "OGG_640", "OGG_320", "MP3_320", "ACC_192", "OGG_192", "MP3_128", "ACC_96", "OGG_96", "ACC_48"]
     },
     "monitor": {

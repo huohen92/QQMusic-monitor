@@ -7,10 +7,14 @@ import orjson as json
 
 import qq_music
 from shared_state import download_tasks
+from download_paths import resolve_target_dir, resolve_scan_dir
+from local_files import find_existing_file, human_size
 
 # --- 配置 ---
 DATA_DIR = "data"
 TASKS_FILE = os.path.join(DATA_DIR, "download_tasks.json")
+# 静态挂载的下载根目录（app.mount("/downloads", ...) 对应的本地路径）
+DOWNLOADS_DIR = "downloads"
 
 # 从配置管理模块获取配置
 from config import config
@@ -62,16 +66,109 @@ async def _save_download_tasks():
     except IOError as e:
         print(f"错误：无法保存下载任务文件: {e}")
 
-async def _execute_download(song_mid: str, song_name: str, download_dir: str = ""):
+def _file_url(file_path: str) -> str:
+    """把本地文件路径转成 /downloads/... 静态访问地址（不在挂载目录内则返回空）"""
+    if not file_path:
+        return ""
+    try:
+        rel = os.path.relpath(file_path, DOWNLOADS_DIR)
+    except ValueError:
+        return ""
+    if rel.startswith(".."):
+        return ""
+    return "/downloads/" + rel.replace(os.sep, "/")
+
+
+def _cleanup_old_files(
+    target_dir: str,
+    scan_dir: str,
+    playlist_mode: bool,
+    safe_song_name: str,
+    keep_path: str,
+) -> list:
+    """重新下载前，清理同一首歌的旧文件
+
+    - 同一首歌可能已经以别的格式存在（例如上次下了 .ogg，这次拿到 .mp3），
+      只按"扩展名相同"清理会漏掉，结果留下两份；
+    - 歌单模式会连同各日期子目录一起扫（旧副本可能在别的日期目录里）；
+    - 只按"歌名完全一致"匹配，不会误删标题相近的其它歌。
+
+    Returns:
+        list: 实际删除的文件路径
+    """
+    from local_files import iter_audio_files, same_song_name
+
+    removed = []
+    keep_norm = os.path.normpath(keep_path)
+    root = scan_dir if playlist_mode else target_dir
+    for old_full in list(iter_audio_files(root, recursive=playlist_mode)):
+        if os.path.normpath(old_full) == keep_norm:
+            continue
+        old_base = os.path.splitext(os.path.basename(old_full))[0]
+        if not same_song_name(old_base, safe_song_name):
+            continue
+        try:
+            os.remove(old_full)
+            removed.append(old_full)
+            print(f"已删除旧文件（同一首歌、不同格式）: {old_full}")
+        except OSError as e:
+            print(f"删除旧文件失败: {e}")
+    return removed
+
+
+async def _execute_download(
+    song_mid: str,
+    song_name: str,
+    download_dir: str = "",
+    playlist_mode: bool = False,
+):
     """实际执行下载的核心逻辑
 
     Args:
         song_mid: 歌曲 mid
-        song_name: 歌曲名称
-        download_dir: 自定义下载目录（空则使用默认 downloads/）
+        song_name: 歌曲名称（形如 "歌名 - 歌手"）
+        download_dir: 任务记录的下载目录（空则使用默认目录）
+        playlist_mode: 是否来自歌单下载（决定是否套用日期文件夹）
     """
     import time
 
+    print(f"开始处理: {song_name}")
+
+    task_state = download_tasks.get(song_mid, {})
+    force = bool(task_state.get("force"))
+
+    # 最终落盘目录（歌单模式 + 该歌单开启日期文件夹时，会追加 YYMMDD 子目录）
+    target_dir = resolve_target_dir(
+        download_dir,
+        playlist_mode,
+        date_folder=task_state.get("date_folder"),
+    )
+    # 判断"本地是否已存在"时检索的目录：歌单模式查整个歌单目录（含历史日期子目录）
+    scan_dir = resolve_scan_dir(download_dir, target_dir, playlist_mode)
+
+    # 1) 下载前先检索目标目录里有没有同一首歌：有就跳过。
+    #    这一步不需要登录，也不请求下载链接（省账号下载额度）
+    if not force:
+        existing = find_existing_file(scan_dir, song_name)
+        if existing:
+            file_path = existing["path"]
+            print(
+                f"本地已存在，跳过下载: {file_path} "
+                f"(音质: {existing['quality']}, 大小: {human_size(existing['size'])})"
+            )
+            download_tasks[song_mid].update({
+                "status": "local_exists",
+                "progress": 100,
+                "quality": existing["quality"],
+                "file_size": existing["size"],
+                "file_path": file_path,
+                "url": _file_url(file_path),
+                "error": "本地已存在，已跳过下载",
+            })
+            await _save_download_tasks()
+            return
+
+    # 2) 确实需要下载，再检查登录态
     cred = qq_music.get_credential()
     if not cred:
         print("错误：无法执行下载，因为用户凭证未加载。")
@@ -83,11 +180,7 @@ async def _execute_download(song_mid: str, song_name: str, download_dir: str = "
 
     # 从凭证中获取特定于该用户的冷却时间
     cooldown_until = qq_music.get_cooldown_until(cred)
-
-    print(f"开始处理: {song_name}")
-    # 自定义下载目录（空则用默认 downloads/save，容器内即 /app/downloads/save）
-    download_dir = download_dir or "downloads/save"
-    os.makedirs(download_dir, exist_ok=True)
+    os.makedirs(target_dir, exist_ok=True)
 
     # 关键改动：总是先尝试获取下载链接
     url_info = await qq_music.get_song_download_url(song_mid)
@@ -103,31 +196,20 @@ async def _execute_download(song_mid: str, song_name: str, download_dir: str = "
         file_extension = url_info["extension"]
         import re
         safe_song_name = re.sub(r'[\\/*?:"<>|]', "", song_name).rstrip()
-        file_path = os.path.join(download_dir, f"{safe_song_name}{file_extension}")
+        file_path = os.path.join(target_dir, f"{safe_song_name}{file_extension}")
 
-        # 重新下载时覆盖已存在的本地文件，避免生成重复文件
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print(f"已删除旧文件，准备覆盖: {file_path}")
-            else:
-                # 文件名清理规则差异（如逗号被去掉）导致的旧文件，用去特殊字符后的 basename 匹配
-                new_base = re.sub(r'[,，&\s]', "", safe_song_name).lower()
-                for old_name in os.listdir(download_dir):
-                    old_full = os.path.join(download_dir, old_name)
-                    if not os.path.isfile(old_full):
-                        continue
-                    old_base, old_ext = os.path.splitext(old_name)
-                    # 扩展名一致，且去除逗号/空格后 basename 相同 → 视为同一首歌，删除旧文件
-                    old_norm = re.sub(r'[,，&\s]', "", old_base).lower()
-                    if old_ext == file_extension and old_norm == new_base and old_full != file_path:
-                        try:
-                            os.remove(old_full)
-                            print(f"已删除旧文件（同一首歌）: {old_full}")
-                        except OSError as e:
-                            print(f"删除旧文件失败: {e}")
-        except Exception as e:
-            print(f"清理旧文件失败: {e}")
+        # 仅在用户明确"重新下载"（force）时覆盖旧文件；
+        # 普通下载在前面已经因为"本地已存在"跳过了，不会走到这里
+        if force:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"已删除旧文件，准备覆盖: {file_path}")
+                # 同一首歌的其它格式副本（例如之前是 .ogg、这次是 .mp3）也一并清掉，
+                # 否则会同时留下两份；歌单模式会连各日期子目录一起扫
+                _cleanup_old_files(target_dir, scan_dir, playlist_mode, safe_song_name, file_path)
+            except Exception as e:
+                print(f"清理旧文件失败: {e}")
 
         download_tasks[song_mid].update({"status": "downloading", "quality": quality})
         await _save_download_tasks()
@@ -152,12 +234,20 @@ async def _execute_download(song_mid: str, song_name: str, download_dir: str = "
                                 if download_tasks[song_mid].get("progress") != progress:
                                     download_tasks[song_mid]["progress"] = progress
 
+            file_size = 0
+            try:
+                if os.path.exists(file_path):
+                    file_size = os.path.getsize(file_path)
+            except OSError:
+                pass
             download_tasks[song_mid].update(
                 {
                 "status": "completed",
                 "progress": 100,
                 "file_path": file_path,
-                "url": f"/downloads/{os.path.basename(file_path)}"
+                "file_size": file_size,
+                "force": False,
+                "url": _file_url(file_path)
             })
             print(f"下载完成: {song_name}")
 
@@ -274,9 +364,10 @@ async def download_worker():
                 song_queue.task_done()
                 continue
 
-            # 从任务状态读取该歌曲的下载目录（可能为空 = 默认）
+            # 从任务状态读取该歌曲的下载目录与下载模式
             task_dir = task_state.get("download_dir", "") if task_state else ""
-            await _execute_download(song_mid, song_name, task_dir)
+            task_playlist_mode = bool(task_state.get("playlist_mode")) if task_state else False
+            await _execute_download(song_mid, song_name, task_dir, task_playlist_mode)
             song_queue.task_done()
         except asyncio.CancelledError:
             break
@@ -323,16 +414,39 @@ def start_retry_task():
     print(f"启动后台定时重试任务，检查间隔为 {RETRY_INTERVAL_SECONDS / 3600:.1f} 小时。")
     asyncio.create_task(retry_failed_tasks_periodically())
 
-async def add_song_to_queue(song_mid: str, song_name: str, download_dir: str = ""):
+async def add_song_to_queue(
+    song_mid: str,
+    song_name: str,
+    download_dir: str = "",
+    playlist_mode: bool = False,
+    date_folder=None,
+    force: bool = False,
+):
     """生产者接口：将歌曲加入下载队列
 
-    若歌曲已在队列/下载中/已完成，则跳过，避免重复下载。
-    download_dir 为歌曲的自定义下载目录（空 = 使用默认 downloads/）。
+    普通下载：若该歌曲已有排队/下载中/已完成的任务，则跳过，避免重复下载。
+    force=True（用户点了"重新下载"）：忽略上述跳过逻辑，并允许覆盖已存在的本地文件。
+    download_dir 为歌曲的下载目录（空 = 使用默认目录）；
+    playlist_mode 标记是否来自歌单下载；
+    date_folder 为该歌单的"按日期建文件夹"开关（None = 沿用该歌曲上一次任务的设置）。
     """
     existing = download_tasks.get(song_mid)
-    if existing and existing.get("status") in ("queued", "downloading", "completed"):
-        print(f"跳过加入队列: {song_name} 当前状态为 {existing.get('status')}")
-        return
+
+    if existing and not force:
+        status = existing.get("status")
+        if status in ("queued", "downloading", "completed"):
+            print(f"跳过加入队列: {song_name} 当前状态为 {status}")
+            return False
+        if status == "local_exists":
+            print(f"跳过加入队列: {song_name} 本地已存在")
+            return False
+
+    # 重试/重下时若调用方没带目录或开关，沿用上一次任务的设置，避免跑到默认目录
+    if existing:
+        download_dir = download_dir or existing.get("download_dir", "")
+        playlist_mode = playlist_mode or bool(existing.get("playlist_mode"))
+        if date_folder is None:
+            date_folder = existing.get("date_folder")
 
     download_tasks[song_mid] = {
         "status": "queued",
@@ -341,6 +455,10 @@ async def add_song_to_queue(song_mid: str, song_name: str, download_dir: str = "
         "progress": 0,
         "error": None,
         "download_dir": download_dir,
+        "playlist_mode": playlist_mode,
+        "date_folder": bool(date_folder),
+        "force": force,
     }
     await _save_download_tasks()
     await song_queue.put((song_mid, song_name))
+    return True

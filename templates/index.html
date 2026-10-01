@@ -4,32 +4,57 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QQ音乐下载器</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/logo-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/logo-180.png">
+    <meta name="theme-color" content="#3060d8">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <script>
+        // 首屏防闪：在样式生效前定好主题（跟随系统 / 浅色 / 深色）
+        (function () {
+            var mode = 'auto';
+            try { mode = localStorage.getItem('qqmusicTheme') || 'auto'; } catch (e) { }
+            var resolved = mode === 'auto'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : mode;
+            document.documentElement.setAttribute('data-bs-theme', resolved);
+            document.documentElement.dataset.themeMode = mode;
+        })();
+    </script>
     <link rel="stylesheet" href="/static/style.css?version={{ current_timestamp }}">
 </head>
 <body>
     <div class="container mt-4">
-        <header class="d-flex justify-content-between align-items-center mb-4">
-            <h1>QQ音乐下载器</h1>
-            <div class="d-flex align-items-center">
-            <img id="user-avatar" src="" alt="头像" class="rounded-circle me-2" style="width: 32px; height: 32px; display: none; object-fit: cover;">
-            <span id="user-nickname" class="me-3" style="display: none;"></span>
-            <span id="login-status" class="me-3">正在检查登录状态...</span>
-            <span id="api-cooldown-timer" class="badge bg-warning text-dark me-3" style="display: none;"></span>
-            <div class="dropdown me-2" id="login-dropdown" style="display: inline-block;">
-                <button id="login-btn" class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    扫码登录
-                </button>
-                <ul class="dropdown-menu">
-                    <li><a class="dropdown-item login-type-btn" href="#" data-type="QQ">QQ扫码登录</a></li>
-                    <li><a class="dropdown-item login-type-btn" href="#" data-type="WX">微信扫码登录</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item phone-login-btn" href="#">手机号登录</a></li>
-                </ul>
+        <header class="app-bar">
+            <div class="app-brand">
+                <span class="brand-logo">
+                    <img src="/static/logo.png" alt="" width="34" height="34">
+                </span>
+                <h1>QQ音乐下载器</h1>
             </div>
-            <button id="logout-btn" class="btn btn-danger" style="display: none;">退出登录</button>
-        </div>
+            <div class="user-area">
+                <img id="user-avatar" src="" alt="头像" style="display: none;">
+                <span id="user-nickname" style="display: none;"></span>
+                <span id="login-status">正在检查登录状态...</span>
+                <span id="api-cooldown-timer" class="badge bg-warning text-dark" style="display: none;"></span>
+                <div class="dropdown" id="login-dropdown" style="display: inline-block;">
+                    <button id="login-btn" class="btn btn-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-box-arrow-in-right"></i> 扫码登录
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item login-type-btn" href="#" data-type="QQ">QQ扫码登录</a></li>
+                        <li><a class="dropdown-item login-type-btn" href="#" data-type="WX">微信扫码登录</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item phone-login-btn" href="#">手机号登录</a></li>
+                    </ul>
+                </div>
+                <button id="logout-btn" class="btn btn-outline-danger btn-sm" style="display: none;">退出登录</button>
+                <button id="theme-toggle" class="btn btn-outline-secondary btn-sm" title="主题：跟随系统（点击切换）">
+                    <i class="bi bi-circle-half"></i>
+                </button>
+            </div>
         </header>
 
         <!-- 二维码登录容器 -->
@@ -88,37 +113,40 @@
             </div>
         </div>
 
-        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
-            <div class="container-fluid">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a class="nav-link active" id="nav-music" href="#">音乐</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" id="nav-config" href="#">配置</a>
-                    </li>
-                </ul>
-            </div>
+        <nav class="nav-tabs-bar">
+            <a class="nav-link active" id="nav-music" href="#"><i class="bi bi-collection-play"></i>音乐</a>
+            <a class="nav-link" id="nav-config" href="#"><i class="bi bi-sliders"></i>配置</a>
+            <a class="nav-link" id="nav-logs" href="#"><i class="bi bi-terminal"></i>日志</a>
         </nav>
 
         <div id="music-content" class="row main-layout">
             <!-- 左侧：歌单列表 -->
             <div class="col-md-3">
-                <div class="panel-title"><i class="bi bi-music-note-beamed"></i> 我的歌单</div>
+                <div class="panel-head">
+                    <div class="panel-title mb-0"><i class="bi bi-music-note-beamed"></i> 我的歌单</div>
+                </div>
                 <div id="playlists" class="content-box">
-                    <p>请先登录以查看您的歌单。</p>
+                    <div class="empty-state">
+                        <i class="bi bi-person-lock"></i>
+                        <div>请先登录以查看您的歌单</div>
+                    </div>
                 </div>
             </div>
 
             <!-- 中间：歌曲列表 -->
             <div class="col-md-5">
-                <div class="panel-title"><i class="bi bi-disc"></i> 歌曲列表</div>
+                <div class="panel-head">
+                    <div class="panel-title mb-0"><i class="bi bi-disc"></i> 歌曲列表</div>
+                </div>
                 <div class="input-group mb-2">
-                    <input type="text" class="form-control" id="song-search-input" placeholder="搜索歌曲..." autocomplete="off">
+                    <input type="text" class="form-control" id="song-search-input" placeholder="搜索歌曲、歌手…" autocomplete="off">
                     <button class="btn btn-primary" id="song-search-btn" type="button"><i class="bi bi-search"></i> 搜索</button>
                 </div>
                 <div id="song-list" class="content-box">
-                    <p>请从左侧选择一个歌单。</p>
+                    <div class="empty-state">
+                        <i class="bi bi-music-note-list"></i>
+                        <div>请从左侧选择一个歌单</div>
+                    </div>
                 </div>
             </div>
 
@@ -204,6 +232,14 @@
                                     <input class="form-check-input" type="checkbox" id="write-lyrics" name="download.write_lyrics">
                                     <label class="form-check-label" for="write-lyrics">下载歌词</label>
                                 </div>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="prefer-mp3" name="download.prefer_mp3">
+                                    <label class="form-check-label" for="prefer-mp3">OGG 转 MP3（优先下载原生 MP3）</label>
+                                    <div class="form-text">
+                                        勾选后：无损及以上（母带/全景声/FLAC）仍然优先；没有无损时优先取 QQ 原生 MP3，
+                                        避免下载播放器可能不支持的 .ogg。只有该歌完全没有 MP3 时才保留 OGG。默认不勾选。
+                                    </div>
+                                </div>
                                 <div class="ms-4 mb-2" id="lyric-options-container">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="lyric-include-normal" name="download.lyric_include_normal">
@@ -245,10 +281,13 @@
                         <div class="mb-3">
                             <label class="form-label">默认下载位置（固定）</label>
                             <input type="text" class="form-control" id="default-download-dir" value="" disabled>
-                            <div class="form-text">所有歌曲默认下载到此目录。可为每个监控歌单指定独立目录，留空则使用默认。</div>
+                            <div class="form-text">单曲下载的目录。歌单下载若未单独指定目录，则保存到 /app/downloads/&lt;歌单名称&gt;/。</div>
                         </div>
                         <div class="mb-3" id="monitored-dir-list">
                             <div class="text-muted small">暂无监控歌单。先到「音乐」页开启歌单监控，再回来配置。</div>
+                        </div>
+                        <div class="form-text mb-3">
+                            每个歌单可以单独设置保存目录，以及是否按日期自动新建文件夹（勾选后保存到 <code>&lt;歌单目录&gt;/YYMMDD/</code>，如 <code>261001</code>）。
                         </div>
 
                         <hr>
@@ -317,7 +356,71 @@
                         <button type="submit" class="btn btn-primary">保存配置</button>
                         <button type="button" class="btn btn-secondary" id="reset-config-btn">重置</button>
                     </form>
+
+                    <!-- 版本与项目地址 -->
+                    <div class="app-meta">
+                        <span class="version-chip" title="当前版本">
+                            <i class="bi bi-tag-fill"></i> v{{ app_version }}
+                        </span>
+                        <a class="github-link" href="{{ github_url }}" target="_blank" rel="noopener noreferrer"
+                           title="查看项目源代码">
+                            <i class="bi bi-github"></i> {{ github_url }}
+                        </a>
+                    </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- 日志页面 -->
+        <div id="logs-content" class="row" style="display: none;">
+            <div class="col-md-12 d-flex flex-column">
+                <div class="panel-head">
+                    <div class="panel-title mb-0"><i class="bi bi-terminal"></i> 运行日志</div>
+                    <span class="text-muted small" id="log-status">共 0 条</span>
+                </div>
+                <div class="content-box log-panel">
+                    <div class="log-toolbar">
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" id="log-auto-refresh" checked>
+                            <label class="form-check-label" for="log-auto-refresh">自动刷新（2 秒）</label>
+                        </div>
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" id="log-auto-scroll" checked>
+                            <label class="form-check-label" for="log-auto-scroll">自动滚动到底部</label>
+                        </div>
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" id="log-only-error">
+                            <label class="form-check-label" for="log-only-error">只看警告/错误</label>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" id="log-refresh-btn">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" id="log-clear-btn">
+                            <i class="bi bi-trash"></i> 清空
+                        </button>
+                    </div>
+                    <pre id="log-view" class="log-view">（暂无日志）</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用对话框：替代原生 alert/confirm，样式与应用一致 -->
+    <div id="ui-dialog" class="ui-dialog" style="display: none;" role="dialog" aria-modal="true"
+         aria-labelledby="ui-dialog-title">
+        <div class="ui-dialog-backdrop" data-dialog-cancel></div>
+        <div class="ui-dialog-card" role="document">
+            <div class="ui-dialog-head">
+                <span class="ui-dialog-icon tone-info" id="ui-dialog-icon"><i class="bi bi-info-circle"></i></span>
+                <div class="ui-dialog-title-wrap">
+                    <h5 class="ui-dialog-title" id="ui-dialog-title">提示</h5>
+                </div>
+            </div>
+            <p class="ui-dialog-message" id="ui-dialog-message"></p>
+            <dl class="ui-dialog-rows" id="ui-dialog-rows" style="display: none;"></dl>
+            <div class="ui-dialog-foot">
+                <button type="button" class="btn btn-light" id="ui-dialog-cancel" data-dialog-cancel>取消</button>
+                <button type="button" class="btn btn-primary" id="ui-dialog-confirm">确定</button>
             </div>
         </div>
     </div>
@@ -325,26 +428,47 @@
     <!-- 底部播放条 -->
     <div id="player-bar" class="player-bar" style="display: none;">
         <audio id="audio-player"></audio>
+
+        <!-- 顶部通栏进度条（细线，悬停/拖动时变粗） -->
+        <div class="player-progress">
+            <input type="range" id="player-progress-bar" class="form-range" min="0" max="100" value="0" title="播放进度">
+        </div>
+
         <div class="player-main">
-            <div class="d-flex align-items-center w-100 gap-2">
-                <button id="player-toggle-btn" class="btn btn-sm btn-outline-light" title="播放/暂停">
+            <div class="player-left">
+                <span class="player-cover-wrap" title="专辑封面">
+                    <i class="bi bi-music-note-beamed"></i>
+                    <img id="player-cover" class="player-cover" src="" alt="" style="display: none;">
+                </span>
+                <button id="player-toggle-btn" class="btn player-toggle" title="播放/暂停">
                     <i class="bi bi-play-fill" id="player-toggle-icon"></i>
+                    <span id="player-toggle-spinner" class="spinner-border spinner-border-sm" style="display: none;" role="status" aria-hidden="true"></span>
                 </button>
-                <div class="player-info text-truncate flex-grow-1">
-                    <div id="player-song-name" class="text-truncate small">未在播放</div>
+                <div class="player-info">
+                    <div id="player-song-name" class="player-song-name">未在播放</div>
+                    <div class="player-sub">
+                        <span class="player-eq" id="player-eq"><i></i><i></i><i></i></span>
+                        <span class="player-artist" id="player-artist"></span>
+                        <span class="player-state" id="player-state">就绪</span>
+                    </div>
                 </div>
-                <span id="player-time" class="small text-muted">0:00 / 0:00</span>
-                <button id="player-close-btn" class="btn btn-sm btn-outline-light" title="关闭">
+            </div>
+            <div class="player-right">
+                <span id="player-time" class="player-time">0:00 / 0:00</span>
+                <div class="player-volume">
+                    <button id="player-mute-btn" class="btn btn-icon-light" title="静音/恢复">
+                        <i class="bi bi-volume-up"></i>
+                    </button>
+                    <input type="range" id="player-volume" class="form-range" min="0" max="100" value="100" title="音量">
+                </div>
+                <button id="player-close-btn" class="btn btn-icon-light" title="关闭播放条">
                     <i class="bi bi-x-lg"></i>
                 </button>
-            </div>
-            <div class="player-progress mt-1">
-                <input type="range" id="player-progress-bar" class="form-range" min="0" max="100" value="0" title="播放进度">
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/script.js?v=2.8"></script>
+    <script src="/static/script.js?v=3.8"></script>
 </body>
 </html>

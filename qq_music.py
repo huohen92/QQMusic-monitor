@@ -65,10 +65,10 @@ QUALITY_MAP = {
     SongFileType.MASTER: (".flac", "臻品母带"),
     SongFileType.ATMOS_51: (".flac", "臻品全景声 (5.1)"),
     SongFileType.ATMOS_2: (".flac", "臻品全景声 (Stereo)"),
-    SongFileType.FLAC: (".flac", "无损音质"),
+    SongFileType.FLAC: (".flac", "SQ无损音质"),
     SongFileType.OGG_640: (".ogg", "极高音质"),
-    SongFileType.OGG_320: (".ogg", "高品音质"),
-    SongFileType.MP3_320: (".mp3", "较高音质"),
+    SongFileType.OGG_320: (".ogg", "HQ高品音质"),
+    SongFileType.MP3_320: (".mp3", "HQ较高音质"),
     SongFileType.ACC_192: (".m4a", "较高音质"),
     SongFileType.OGG_192: (".ogg", "标准音质"),
     SongFileType.MP3_128: (".mp3", "标准音质"),
@@ -77,6 +77,36 @@ QUALITY_MAP = {
     SongFileType.ACC_48: (".m4a", "超低音质"),
 }
 QUALITY_ORDER = list(QUALITY_MAP.keys())
+
+# 无损及以上：开启"优先 MP3"时这些档位不受影响，避免为了格式把无损降级
+LOSSLESS_TYPES = (
+    SongFileType.MASTER,
+    SongFileType.ATMOS_51,
+    SongFileType.ATMOS_2,
+    SongFileType.FLAC,
+)
+# 原生 MP3 档位
+MP3_TYPES = (SongFileType.MP3_320, SongFileType.MP3_128)
+
+
+def get_quality_order():
+    """实际下载时尝试的音质顺序
+
+    默认就是 QUALITY_ORDER；开启 download.prefer_mp3 时，把原生 MP3 两档提到
+    OGG/ACC 之前：
+        母带/全景声/FLAC（不变） → MP3_320 → MP3_128 → OGG_640 → OGG_320 → ...
+    这样"该退而求其次"时先拿 QQ 原生 MP3（无需二次转码、无额外音质损失），
+    只有这首歌完全没有 MP3 时才保留 .ogg。
+    """
+    from config import config
+
+    if not config.get("download.prefer_mp3", False):
+        return list(QUALITY_ORDER)
+
+    lossless = [q for q in QUALITY_ORDER if q in LOSSLESS_TYPES]
+    mp3 = [q for q in QUALITY_ORDER if q in MP3_TYPES]
+    others = [q for q in QUALITY_ORDER if q not in LOSSLESS_TYPES and q not in MP3_TYPES]
+    return lossless + mp3 + others
 
 
 # --- 核心函数 ---
@@ -300,7 +330,8 @@ def _song_to_dict(song):
         "singer": [
             {"name": s.name, "mid": s.mid, "id": s.id} for s in song.singer
         ],
-        "album": {"name": song.album.name} if song.album else {},
+        # album.mid 用于前端拼封面地址（数据本来就在接口返回里，不额外请求）
+        "album": {"name": song.album.name, "mid": song.album.mid} if song.album else {},
         "interval": getattr(song, "interval", 0),
     }
 
@@ -388,8 +419,11 @@ async def get_user_info():
 async def get_song_lyrics(song_mid: str):
     """获取歌曲歌词（普通/逐字/翻译）
 
-    - 请求 qrc=0 得到普通 LRC（lyric）和翻译 LRC（trans）
-    - 请求 qrc=1 得到逐字 QRC（XML），转换为标准 LRC 存入 qrc 字段
+    - qrc=False 得到普通 LRC（lyric）与翻译 LRC（trans）
+    - qrc=True 得到逐字 QRC（XML），转换为标准 LRC 存入 qrc 字段
+
+    使用 qqmusic-api-python 的公开接口 lyric.get_lyric()；
+    返回的 GetLyricResponse 模型内部已自动解密歌词（见 models/lyric.py）。
 
     Returns:
         dict: 含 lyric(普通LRC) / qrc(逐字LRC) / trans(翻译LRC) 的字典；失败返回 None
@@ -397,52 +431,41 @@ async def get_song_lyrics(song_mid: str):
     if not global_client:
         initialize_qqmusic_session()
     try:
-        def _decrypt(value):
+        def _field(obj, name):
+            """兼容模型对象与 dict 两种返回形式"""
+            if obj is None:
+                return ""
+            if isinstance(obj, dict):
+                value = obj.get(name, "")
+            else:
+                value = getattr(obj, name, "")
+            return value if isinstance(value, str) else ""
+
+        def _plain(value):
+            """库已自动解密；这里只兜底处理仍是密文、或旧版本未解密的情况"""
             if not value or not isinstance(value, str):
                 return ""
+            if value.lstrip()[:1] in ("[", "<"):
+                return value  # 已是明文 LRC / QRC XML
             try:
                 return qrc_decrypt(value)
             except Exception:
                 return value
 
-        def _build_and_request(qrc_flag, trans_flag):
-            params = {
-                "crypt": 1,
-                "lrc_t": 0,
-                "qrc": qrc_flag,
-                "qrc_t": 0,
-                "roma": 0,
-                "roma_t": 0,
-                "trans": trans_flag,
-                "trans_t": 0,
-                "type": 1,
-            }
-            params.update(global_client.lyric._build_query_common_params())
-            params["songMid"] = song_mid
-            req = global_client.lyric._build_request(
-                module="music.musichallSong.PlayLyricInfo",
-                method="GetPlayLyricInfo",
-                param=params,
-                preserve_bool=True,
-                response_model=None,
-            )
-            return req
-
         # 普通 + 翻译
-        data_normal = await _build_and_request(0, 1)
-        lyric = _decrypt(data_normal.get("lyric", ""))
-        trans = _decrypt(data_normal.get("trans", ""))
+        data_normal = await global_client.lyric.get_lyric(song_mid, qrc=False, trans=True)
+        lyric = _plain(_field(data_normal, "lyric"))
+        trans = _plain(_field(data_normal, "trans"))
         if not lyric.startswith("[") and not trans:
             # 尝试仅拿普通歌词
-            data_normal2 = await _build_and_request(0, 0)
-            lyric = _decrypt(data_normal2.get("lyric", "")) or lyric
+            data_normal2 = await global_client.lyric.get_lyric(song_mid, qrc=False, trans=False)
+            lyric = _plain(_field(data_normal2, "lyric")) or lyric
 
         # 逐字歌词
         qrc = ""
         try:
-            data_qrc = await _build_and_request(1, 0)
-            qrc_raw = data_qrc.get("lyric", "")
-            qrc_xml = _decrypt(qrc_raw)
+            data_qrc = await global_client.lyric.get_lyric(song_mid, qrc=True, trans=False)
+            qrc_xml = _plain(_field(data_qrc, "lyric"))
             if qrc_xml.strip().startswith("<"):
                 qrc = _convert_qrc_to_lrc(qrc_xml)
         except Exception as e:
@@ -497,7 +520,7 @@ async def get_song_download_url(song_mid: str):
     cdn_dispatch = await global_client.song.get_cdn_dispatch()
     cdn = cdn_dispatch.sip[0] if cdn_dispatch.sip else "https://isure.stream.qqmusic.qq.com/"
 
-    for quality_enum in QUALITY_ORDER:
+    for quality_enum in get_quality_order():
         try:
             data = await global_client.song.get_song_urls(
                 [SongFileInfo(mid=song_mid, file_type=quality_enum)]
