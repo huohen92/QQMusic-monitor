@@ -1,0 +1,30 @@
+# 这些都不该打进镜像
+# 说明：data/ 与 downloads/ 在运行时由 docker-compose 挂载进来，
+# 打进镜像不仅让镜像膨胀，还会把你的登录凭证(qq_cookie.json)固化进镜像层。
+
+# 本地虚拟环境（镜像里会用 pip 重新装）
+.venv/
+venv/
+env/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 运行时数据：登录凭证 / 设备指纹 / 配置 / 任务历史
+data/
+
+# 下载的音乐
+downloads/
+
+# Git 与本地杂物
+.git/
+.gitignore
+*.zip
+.DS_Store
+
+# 本地自测脚本
+test_*.py
+# 原始高清 logo 源图（运行期只用 static/ 下的 PNG 图标集）
+QQMusic-monitor-logo.jpg

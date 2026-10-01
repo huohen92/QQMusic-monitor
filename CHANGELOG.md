@@ -40,7 +40,7 @@
 6. **Logo 更换**为用户提供的 3D 渲染图标，并生成一套 PNG 图标集：
    `static/logo.png`(256) / `logo-192` / `logo-180`(iOS) / `favicon-32` / `favicon-16`，
    页面 `theme-color` 同步为图标主色 `#3060d8`（原图 4.7MB 源图不参与运行期）
-7. **配置页底部**显示**版本号**与 **GitHub 仓库链接**（超链接样式，新窗口打开）；版本号来自 `config.py` 的 `APP_VERSION` 单一来源
+7. **配置页底部**显示**版本号**与 **GitHub 仓库入口**（以 `GitHub` 文字 + 图标作为链接文本，完整地址在 `href`/悬停提示里，不在页面上直接铺出长链接；新窗口打开）；版本号来自 `config.py` 的 `APP_VERSION` 单一来源
 
 ### 三、构建与仓库安全
 
@@ -48,7 +48,12 @@
 9. **`Dockerfile` 依赖层顺序修正**：`COPY requirements.txt` → `pip install` → `COPY .`，此后修改源码不会让依赖层缓存失效（原来每改一行代码都要重装全部依赖）；新增 `ENV PYTHONUNBUFFERED=1`
 10. **`.dockerignore` 补充**：排除 4.7MB 的 logo 源图，避免无谓打进镜像
 11. **版本号统一为 `v0.9.3`**：`config.py` / `docker-compose.yml` 镜像 tag / README 保持一致
-12. **文档整理**
+12. **修复 `start.sh` 启动失败**（Docker 部署致命问题）
+    - 原来写的是 `uvicorn main:app ... -u`，而 `-u` 是 **Python 解释器**参数，uvicorn 并不接受，容器启动会直接报
+      `Error: No such option '-u'` 并退出
+    - 改为 `exec python -u -m uvicorn main:app --host 0.0.0.0 --port 6696`：既保留不缓冲输出（`docker logs` 实时），
+      也修正了容器无法启动的问题
+13. **文档整理**
     - `README.md` 重写：补充版本号、**从源码构建**说明、新增功能、模块说明表，并**加入界面预览截图**（`screenshots/main-page.png`）
     - `更新说明-v0.9.2.md` 整理为 **`CHANGELOG.md`**：新增本 v0.9.3 记录，v0.9.2 内容作为历史保留
     - 清理文档中的个人信息（示例歌单名、本机绝对路径）
@@ -146,7 +151,7 @@
 ### 三、部署相关
 
 - **新增 `.dockerignore`**：原来 `COPY . /app/` 会把 `.venv`(135MB) + `downloads`(1.2GB) + **`data/qq_cookie.json` 登录凭证**一起打进镜像（实测 1336MB/4373 文件）。加后进镜像的只有 **21 个源码文件 / 0.26MB**。
-- **`start.sh` 改用 `exec uvicorn ... -u`**：让 uvicorn 接管 PID 1，`docker stop` 的 SIGTERM 才能触发优雅退出（取消下载 worker 并保存任务状态）；`-u` 让 `docker logs` 实时输出。
+- **`start.sh` 改用 `exec` 启动**：让 uvicorn 接管 PID 1，`docker stop` 的 SIGTERM 才能触发优雅退出（取消下载 worker 并保存任务状态）；实时日志由 `python -u` 提供。
 - `docker-compose.yml` / `README.md` 版本号更新为 `v0.9.2`。
 
 #### 部署前必读

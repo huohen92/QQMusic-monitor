@@ -143,6 +143,60 @@ docker run -d \
 - **不要使用多 worker 启动**：任务状态与监控批次保存在进程内存中，`--workers` 会导致状态不一致。
 - **时区**：按日期建文件夹使用 `YYMMDD`，依赖容器时区，compose 中已设置 `TZ=Asia/Shanghai`。
 
+## 🧰 常见问题（排错）
+
+### 1. 启动报 `Conflict. The container name "/QQMusic-monitor" is already in use`
+
+说明已经存在一个**同名容器**（多为之前手动 `docker run` 或 NAS 图形界面创建的容器）。因为 compose 里用了固定容器名 `container_name: QQMusic-monitor`，compose 无法覆盖一个「不是它自己创建」的容器，于是拒绝启动。
+
+**先导出数据、再删旧容器**（若旧容器没做 `./data` 挂载，登录凭证就在它内部，直接删会一起丢掉）：
+
+```bash
+# 1) 查看同名容器及状态
+docker ps -a --filter name=QQMusic-monitor
+
+# 2) 把旧容器里的登录凭证/配置导出到当前目录（容器已停止也能拷）
+mkdir -p ./data
+docker cp QQMusic-monitor:/app/data/. ./data/
+
+#   如果旧容器的音乐也在容器里（没挂载 downloads），一并导出：
+#   mkdir -p ./downloads && docker cp QQMusic-monitor:/app/downloads/. ./downloads/
+
+# 3) 删除旧容器
+docker rm -f QQMusic-monitor
+
+# 4) 用 compose 重新启动
+docker compose up -d
+docker compose logs -f
+```
+
+在 NAS 图形界面里操作时，等价做法是先在「容器」列表里**删除**那个同名容器，再重新部署。
+
+### 2. 启动报 `Error: No such option '-u'`
+
+v0.9.3 之前 `start.sh` 把 `-u`（Python 解释器的参数）写在了 uvicorn 后面，容器会启动即退出。已修复为 `exec python -u -m uvicorn ...`，请更新到 v0.9.3 或更新版本：
+
+```bash
+docker compose build --no-cache && docker compose up -d
+```
+
+### 3. 页面提示需要登录 / 提示登录失效
+
+`data/` 没有持久化，或换了新的 `data/` 目录。确认「存储位置」里已把 NAS 文件夹映射到 `/app/data` 后重新登录；若反复失效，检查 `data/device.json` 是否被保留（设备指纹变化会触发风控）。
+
+### 4. 端口被占用（6696 已被其他服务使用）
+
+改 `docker-compose.yml` 的宿主机侧端口即可，容器侧保持 6696：
+
+```yaml
+    ports:
+      - "8669:6696"   # 宿主机 8669 → 容器 6696
+```
+
+### 5. 下载的音乐在 NAS 上找不到
+
+检查「存储位置」里 `/app/downloads` 是否映射到了你期望的 NAS 目录；页面右上角「配置 → 下载配置」里的下载目录也应是 `/app/downloads/save`（或用 `/app/downloads/<歌单名>`）。
+
 ## 🔨 本地开发
 
 ```bash
